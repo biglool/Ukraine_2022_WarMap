@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>My map</title>
+<script type="text/javascript" src="https://d3js.org/d3.v5.min.js"></script>
+<link rel="stylesheet" type="text/css" href="map.css">
+<link href='http://fonts.googleapis.com/css?family=Roboto' rel='stylesheet' type='text/css'>
+<link href="https://fonts.googleapis.com/css2?family=Road+Rage&display=swap" rel="stylesheet" type='text/css'>
+
+</head>
+<body>
+    <button id="play-button">Play</button>
+    <div id="container" class="svg-container"></div>
+</body>
+</html>
+
+<script type="text/javascript">
+
+
+var formatDateIntoMonth = d3.timeFormat("%b");
+var formatDate = d3.timeFormat("%d %b");
+var parseDate = d3.timeParse("%m/%d/%y");
+var parseDate2 = d3.timeParse("%d/%m/%Y")
+
+var startDate = new Date("2022-01-01"),
+    endDate = new Date("2022-12-20");
+
+var WarStart = new Date("2022-02-24")
+
+var w = 1400;
+var h = 700;
+
+var margin = {top:-130, right:80, bottom:0, left:150},
+    width = w - margin.left - margin.right,
+    height = 100 - margin.top - margin.bottom;
+
+///////////// base ////////7//
+var svg = d3.select("#container")
+    .append("svg").attr("preserveAspectRatio", "xMinYMin meet").style("background-color","#c9e8fd")
+    .attr("viewBox", "0 0 " + w + " " + h).classed("svg-content", true);
+
+    
+var mapa = svg.append("g").attr("class", "plot")
+
+////////// date slider //////////
+
+var moving = false;
+var currentValue = 0;
+var targetValue = width;
+
+var playButton = d3.select("#play-button");
+    
+var x = d3.scaleTime()
+    .domain([startDate, endDate])
+    .range([0, targetValue])
+    .clamp(true);
+
+var slider = svg.append("g")
+    .attr("class", "slider")
+    .attr("transform", "translate(" + margin.left + "," + height/5 + ")");
+
+slider.append("line")
+    .attr("class", "track")
+    .attr("x1", x.range()[0])
+    .attr("x2", x.range()[1])
+    .select(function() { return this.parentNode.appendChild(this.cloneNode(true)); })
+    .attr("class", "track-inset")
+    .select(function() { return this.parentNode.appendChild(this.cloneNode(true)); })
+    .attr("class", "track-overlay")
+    .call(d3.drag()
+        .on("start.interrupt", function() { slider.interrupt(); })
+        .on("start drag", function() {
+          currentValue = d3.event.x;
+          update(x.invert(currentValue)); 
+        })
+    );
+
+slider.insert("g", ".track-overlay")
+    .attr("class", "ticks")
+    .attr("transform", "translate(0," + 18 + ")")
+    .selectAll("text")
+    .data(x.ticks(10))
+    .enter()
+    .append("text")
+    .attr("x", x)
+    .attr("y", 10)
+    .attr("text-anchor", "middle")
+    .text(function(d) { return formatDateIntoMonth(d); });
+
+var handle = slider.insert("circle", ".track-overlay")
+    .attr("class", "handle")
+    .attr("r", 9);
+
+var label = slider.append("text")  
+    .attr("class", "labelData")
+    .attr("text-anchor", "middle")
+    .text(formatDate(startDate))
+    .attr("transform", "translate(0," + (-25) + ")")
+
+playButton
+    .on("click", function() {
+    var button = d3.select(this);
+    if (button.text() == "Pause") {
+      moving = false;
+      clearInterval(timer);
+      clearInterval(timer2);
+      timer2 = setInterval(step2, 800);
+      button.text("Play");
+    } else {
+      moving = true;
+      timer = setInterval(step, 400);
+      timer2 = setInterval(step2, 400);
+      button.text("Pause");
+    }
+
+    console.log("Slider moving: " + moving);
+  })
+
+function step() {
+  currentValue = currentValue + (targetValue/365);
+  if (currentValue > targetValue) {
+    moving = false;
+    currentValue = 0;
+    clearInterval(timer);
+    playButton.text("Play");
+    console.log("Slider moving: " + moving);
+  }
+}
+
+function step2() {
+  update(x.invert(currentValue));
+  
+}
+////////// mapa base//////////
+
+    var projection = d3.geoMercator().translate([w, h]).scale(2900).center([45,44.2]);
+    var path = d3.geoPath().projection(projection);
+        
+// load data  
+    var worldmap = d3.json("data/countries.geojson");
+    var cities = d3.csv("data/UAcities.csv");
+   
+Promise.all([worldmap, cities]).then(function(values){    
+ // draw map
+ mapa.selectAll("path")
+        .data(values[0].features)
+        .enter()
+        .append("path")
+        .attr("class","continent")
+        .attr("d", path),
+ // draw cities
+ mapa.selectAll("circle")
+        .data(values[1])
+        .enter()
+        .append("circle")
+		.attr("class","cities")
+        .attr("cx", function(d) {return projection([d.Lattitude,d.Longitude])[0];})
+        .attr("cy", function(d) {return projection([d.Lattitude,d.Longitude])[1];})
+        .attr("r", function(d) {return 1+d.Population/1000000}),
+ // add citie names
+ mapa.selectAll("text")
+        .data(values[1])
+        .enter()
+        .append("text")
+		.text(function(d) {
+			   		return d.City;
+			   })
+		.attr("x", function(d) {return projection([d.Lattitude,d.Longitude])[0] + 5;})
+		.attr("y", function(d) {return projection([d.Lattitude,d.Longitude])[1] + 15;})
+		.attr("class","labelsCities");
+        
+    }); 
+
+////////// info //////////
+
+var info = svg.append("g").attr("class", "info")
+
+war_label=info.append("text")  
+    .attr("class","labelWar")
+    .attr("text-anchor", "middle")
+    .text("WAR")
+    .attr("x", w/2)
+    .attr("y", h/2)
+    .attr('font-size',50)
+    .attr("visibility", "hidden");
+
+// conflictes
+var clashes
+var clashes_data
+
+d3.csv("data/clashes.csv").then(function(data) {
+    data.forEach(function(d) {
+        d.event_date = new Date(d.event_date)
+    });
+    //data=data.filter(function(d) { return  d.event_type != "Protests"})
+    clashes_data = data
+    clashes = mapa.selectAll("location")
+    .data(data) ;
+})
+
+
+var clashtype=[['Explosions/Remote violence' ,'img/explosion.png',1250,120,],
+                ['Battles' ,'img/soldier.png',1250,160,],
+                ['Riots' ,'img/riot.png',1250,200,],          
+                ['Strategic developments' ,'img/strategic.png',1250,240,],
+                ['Violence against civilians' ,'img/skull.png',1250,280,]]
+
+clashtype.forEach(gen_recounts_clash);
+
+function gen_recounts_clash(el){
+    clash=el[0] 
+    despx=el[2]  
+    despy=el[3] 
+
+
+rec_label1=info.append("text")  
+    .attr("class", "labelDesp")
+    .attr("text-anchor", "right")
+    .text(clash)
+    .attr("x", despx-10)
+    .attr("y", despy)
+
+
+rec_label2  = info.append("text")  
+    .attr("class", "labelDespNum")
+    .attr("text-anchor", "right")
+    .text("0")
+    .attr("x", despx-5)
+    .attr("y", despy+15)
+
+rec_ico =info.append("image")
+    .attr("class", "icon")
+    .attr("x", despx -30)
+    .attr("y",  despy )
+    .attr('xlink:href', el[1] )
+    .attr("width", "30")
+    .attr("height", "30")
+    .attr("transform", "translate(" + -15 + "," + -15 + ")")
+  
+
+    el[4] =[rec_label1,rec_label2,rec_ico]
+}
+
+// morts ferits
+
+var despx=1050
+var despy=160
+info.append("text")  
+    .attr("class", "labelDesp")
+    .attr("text-anchor", "right")
+    .text("Civilians Killed")
+    .attr("x", despx-10)
+    .attr("y", despy)
+
+
+label_morts  = info.append("text")  
+    .attr("class", "labelDespNum")
+    .attr("text-anchor", "right")
+    .text("0")
+    .attr("x", despx-5)
+    .attr("y", despy+15)
+
+info.append("image")
+    .attr("class", "icon")
+    .attr("x", despx -30)
+    .attr("y",  despy )
+    .attr('xlink:href', 'img/rip.png' )
+    .attr("width", "30")
+    .attr("height", "30")
+    .attr("transform", "translate(" + -15 + "," + -15 + ")")
+
+var despx=1050
+var despy=120
+
+info.append("text")  
+    .attr("class", "labelDesp")
+    .attr("text-anchor", "right")
+    .text("Civilians Injured")
+    .attr("x", despx-10)
+    .attr("y", despy)
+
+
+label_inj  = info.append("text")  
+    .attr("class", "labelDespNum")
+    .attr("text-anchor", "right")
+    .text("0")
+    .attr("x", despx-5)
+    .attr("y", despy+15)
+
+info.append("image")
+    .attr("class", "icon")
+    .attr("x", despx -30)
+    .attr("y",  despy )
+    .attr('xlink:href', 'img/inj.png' )
+    .attr("width", "30")
+    .attr("height", "30")
+    .attr("transform", "translate(" + -15 + "," + -15 + ")")
+
+var x_morts
+var x_inj
+d3.csv("data/morts.csv").then(function(data) {
+    data.forEach(function(d) {
+        d.Date = new Date(parseDate2(d.Date))
+    });
+     x_morts = d3.scaleTime().domain(data.map(d => d.Date)).rangeRound(data.map(d => d.Killed))
+     x_inj = d3.scaleTime().domain(data.map(d => d.Date)).rangeRound(data.map(d => d.Injured))
+
+})
+
+//desplaçats
+
+var disp_controler =[["Poland",250,200,,],
+                    ["Belarus",500,100,,],
+                    ["slovakia",180,350,,],
+                    ["Moldavia",560,490,,],
+                    ["Russian Federation",1250,400,,],
+                    ["romania",430,580,,],["hungary",150,465,,]]
+
+disp_controler.forEach(gen_despl);
+
+function gen_despl(el){
+    country=el[0] 
+    despx=el[1]  
+    despy=el[2] 
+
+desp_ball = info.insert("circle", ".test")
+    .attr("class", "despl")
+    .style("fill", "#c27b55")
+    .attr("r", 0)
+    .attr("cx", despx)
+    .attr("cy", despy);
+
+desp_ball_label1=info.append("text")  
+    .attr("class", "labelDesp")
+    .attr("text-anchor", "middle")
+    .text("Displaced to "+ country)
+    .attr("x", despx)
+    .attr("y", despy)
+    .attr("visibility", "hidden");
+
+desp_ball_label2  = info.append("text")  
+    .attr("class", "labelDespNum")
+    .attr("text-anchor", "middle")
+    .text("0")
+    .attr("x", despx)
+    .attr("y", despy+15)
+    .attr("visibility", "hidden");
+
+    el[3] =[desp_ball,desp_ball_label1,desp_ball_label2]
+}
+
+d3.csv("data/creuaments.csv").then(function(data) {
+    data.forEach(function(d) {
+        d.data_date = new Date(parseDate2(d.data_date))
+
+    });
+
+    function ts_desp(data,country){
+        var sd = data.filter(function(d) { return  d.Country === country})
+        var x_desp = d3.scaleTime().domain(sd.map(d => d.data_date)).rangeRound(sd.map(d => d.acumulat))
+        return x_desp
+    }
+
+    disp_controler.forEach(el => {
+        el[4]=ts_desp(data,el[0])
+    });
+
+})
+
+function scaleR(num,off){
+    r= Math.ceil(Math.log10(num)*10 -off +num/100000)
+    if( r > 0) return r;
+    return 0
+}
+
+/////////// plot data////////
+function update(h) {
+    // barra
+    handle.attr("cx", x(h));
+    label.attr("x", x(h)).text(formatDate(h));
+
+    // inici Guerra
+   
+     
+    if((new Date(h)).toDateString()=== WarStart.toDateString())
+    {
+        war_label.attr("visibility", "visible").attr('font-size', 50).style("opacity", 0.2).transition()
+        .attr('font-size', 200).style("opacity", 1)
+        .duration(1500).transition().attr("visibility", "hidden")
+    }
+
+    //desplaçats
+    disp_controler.forEach(el => {
+        el[3][0].transition().attr("r", scaleR( el[4](h),20));
+        if(scaleR( el[4](h),10)>0){
+            el[3][1].transition().attr("visibility", "visible");
+            el[3][2].transition().attr("visibility", "visible");
+        } else {
+            el[3][1].transition().attr("visibility", "hidden");
+            el[3][2].transition().attr("visibility", "hidden");
+        }
+        el[3][2].text( el[4](h));
+    });
+
+    // morts ferits
+    label_morts.text( x_morts(h)) 
+    label_inj.text( x_inj(h)) 
+
+    // lluites
+    drawClash(new Date(h));
+  
+}
+
+function drawClash(h) {
+
+clashtype.forEach(el => {
+    clashes.enter()
+     .filter(function(d) { return (d.event_date.toDateString() === h.toDateString() && d.event_type === el[0] ) })
+    .append("image")
+    .attr("class", "location")
+    .attr("x", function(d) {return projection([d.longitude,d.latitude])[0];})
+    .attr("y", function(d) {return projection([d.longitude,d.latitude])[1];})
+    .attr('xlink:href', el[1] )
+    .attr("width", "1")
+    .attr("height", "1").transition()
+    .attr("transform", "translate(" + -13 + "," + -13 + ")")
+    .attr("width", "26")
+    .attr("height", "26").transition()
+    .duration(550)
+    .attr("transform", "translate(" + 4 + "," + 4 + ")")
+    .attr("width", "0")
+    .attr("height", "0").remove(); 
+
+    d_clash = clashes_data.filter(function(d) { return (d.event_date < h && d.event_type === el[0] )})
+    el[4][1].text(d_clash.length ) ;
+
+});
+}
+   
+</script>
